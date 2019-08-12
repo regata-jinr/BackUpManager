@@ -1,85 +1,69 @@
 ﻿using System;
 using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.Options;
-using Microsoft.Extensions.DependencyInjection;
-
-//TODO: figure out https://www.twilio.com/blog/2018/05/user-secrets-in-a-net-core-console-app.html
-//TODO: why should I use appsettings.json if I have already added json file via user-secrets?
-//TODO: split code to different files.
-//TODO: split code to different files.
 
 namespace BackUpDB
 {
   public class Program
   {
-    public static IConfigurationRoot Configuration { get; set; }
-
+    static Program()
+    {
+      CurrentEnv = Environment.GetEnvironmentVariable("NETCORE_ENV");
+    }
+    public static string CurrentEnv;
+    public static NLog.Logger logger = NLog.LogManager.GetCurrentClassLogger();
+    private static NLog.Logger _nLogger;
+    private static IConfigurationRoot Configuration { get; set; }
     private static void Main()
     {
-      var devEnvironmentVariable = Environment.GetEnvironmentVariable("NETCORE_ENVIRONMENT");
 
-      var isDevelopment = string.IsNullOrEmpty(devEnvironmentVariable) ||
-                          devEnvironmentVariable.ToLower() == "development";
-      //Determines the working environment as IHostingEnvironment is unavailable in a console app
+      _nLogger = logger.WithProperty("side", CurrentEnv);
+      _nLogger.Info($"Starting up backup process:");
 
+
+      Console.WriteLine(CurrentEnv);
+
+      var isDevelopment = string.IsNullOrEmpty(CurrentEnv) ||
+                          CurrentEnv.ToLower() == "development";
+
+      // gets connection string from user secrets
       var builder = new ConfigurationBuilder();
-      // tell the builder to look for the appsettings.json file
-      builder
-          .AddJsonFile("appsettings.json", optional: false, reloadOnChange: true);
+      builder.AddJsonFile("appsettings.json", optional: false, reloadOnChange: true);
 
-      //only add secrets in development
-      if (isDevelopment)
-      {
+      if (!isDevelopment) //production
         builder.AddUserSecrets<Program>();
-      }
 
       Configuration = builder.Build();
 
-      IServiceCollection services = new ServiceCollection();
+      var dbs = new AppSets();
+      Configuration.GetSection(nameof(AppSets)).Bind(dbs);
 
-      //Map the implementations of your classes here ready for DI
-      services
-          .Configure<DBSecrets>(Configuration.GetSection(nameof(DBSecrets)))
-          // .AddLoggin() //FIXME: why it doesn't work?
-          .AddOptions()
-          .AddSingleton<ISecretRevealer, SecretRevealer>()
-          .BuildServiceProvider();
-
-      var serviceProvider = services.BuildServiceProvider();
-
-      // Get the service you need - DI will handle any dependencies - in this case IOptions<SecretStuff>
-      var revealer = serviceProvider.GetService<ISecretRevealer>();
-
-      revealer.Reveal();
+      Console.WriteLine(BackUpManager.BackUpDataBase(dbs.ConnectionString, dbs.Query));
 
       Console.ReadKey();
     }
 
   }
 
-  public class DBSecrets
+  public class AppSets
   {
     public string ConnectionString { get; set; }
+    public string Query { get; set; }
+    public string BackUpFolder { get; set; }
   }
 
-  public interface ISecretRevealer
-  {
-    void Reveal();
-  }
-  public class SecretRevealer : ISecretRevealer
-  {
-    private readonly DBSecrets _secrets;
-    // I’ve injected <em>secrets</em> into the constructor as setup in Program.cs
-    public SecretRevealer(IOptions<DBSecrets> secrets)
-    {
-      // We want to know if secrets is null so we throw an exception if it is
-      _secrets = secrets.Value ?? throw new ArgumentNullException(nameof(secrets));
-    }
 
-    public void Reveal()
-    {
-      //I can now use my mapped secrets below.
-      Console.WriteLine($"Secret One: {_secrets.ConnectionString}");
-    }
+  public class GoogleDriveSets
+  {
+    public string auth_provider_x509_cert_url { get; set; }
+    public string auth_uri { get; set; }
+    public string client_id { get; set; }
+    public string client_secret { get; set; }
+    public string project_id { get; set; }
+    public string redirect_uris { get; set; }
+    public string token_uri { get; set; }
+    public string parent { get; set; }
+    public string UserName { get; set; }
+
   }
+
 }
