@@ -1,26 +1,19 @@
 using System.Data.SqlClient;
-using System.Collections.Generic;
-using Google.Apis.Auth.OAuth2;
-using Google.Apis.Drive.v3;
-using Google.Apis.Drive.v3.Data;
-using Google.Apis.Services;
-using Google.Apis.Util.Store;
 using Microsoft.Extensions.Configuration;
 using System;
-using System.IO;
 using System.Linq;
 using System.Net.Mail;
 using System.Net;
+using System.Diagnostics;
 
 namespace BackUpDB
 {
   public class BackUpManager
   {
-    private static NLog.Logger logger = NLog.LogManager.GetCurrentClassLogger();
     private IConfigurationRoot Configuration { get; set; }
     private string CurrentEnv;
+    private string dbName = "";
     public AppSets CurrentAppSets;
-    public GoogleDriveSets CurrentGDriveSets;
     private readonly bool isDevelopment;
 
     private string ErrorMessage = "";
@@ -29,7 +22,7 @@ namespace BackUpDB
     {
       try
       {
-        logger.Info($"Starting up backup process:");
+        Debug.WriteLine($"Starting up backup process:");
         CurrentEnv = Environment.GetEnvironmentVariable("NETCORE_ENV");
         isDevelopment = string.IsNullOrEmpty(CurrentEnv) ||
                            CurrentEnv.ToLower() == "development";
@@ -44,11 +37,9 @@ namespace BackUpDB
 
         CurrentAppSets = new AppSets();
         Configuration.GetSection(nameof(AppSets)).Bind(CurrentAppSets);
+        dbName = CurrentAppSets.DBName;
 
-        CurrentGDriveSets = new GoogleDriveSets();
-        Configuration.GetSection(nameof(GoogleDriveSets)).Bind(CurrentGDriveSets);
-
-
+        Debug.WriteLine("Constructor has done");
       }
       catch (Exception ex)
       { ErrorMessage = ex.Message; }
@@ -56,108 +47,72 @@ namespace BackUpDB
 
     public bool BackUpDataBase()
     {
-      logger.Info("Connect to the data base and run back up query");
+      Debug.WriteLine("Connect to the data base and run back up query");
 
       var conStrBuilder = new SqlConnectionStringBuilder(CurrentAppSets.ConnectionString);
-
-      string script = System.IO.File.ReadAllText(CurrentAppSets.QueryFilePath);
+      var queries = System.IO.File.ReadLines(CurrentAppSets.QueryFilePath).ToList();
       bool isSuccess = false;
       var connection = new SqlConnection(conStrBuilder.ConnectionString);
-      var command = new SqlCommand(script, connection);
+      SqlCommand command = null;
       try
       {
-
         connection.Open();
-        command.ExecuteScalar();
+        foreach (var query in queries)
+        {
+          command = new SqlCommand(query, connection);
+          Debug.WriteLine($"Execute query:<{query}>");
+          command.ExecuteScalar();
+          System.Threading.Thread.Sleep(1000);
+        }
         isSuccess = true;
-
       }
       catch (Exception ex)
-      { ErrorMessage = ex.Message; }
+      {
+        ErrorMessage = ex.Message;
+        Debug.WriteLine(ErrorMessage);
+
+      }
       finally
       {
         connection?.Dispose();
         command?.Dispose();
       }
+      Debug.WriteLine($"All scripts are done. Status of running is {isSuccess}");
+
       return isSuccess;
     }
 
-    public bool UploadFileToGD()
+    public bool MoveFileToGDriveFolder()
     {
+      Debug.WriteLine($"Start moving file to google drive folder");
+
       bool isSuccess = false;
-      logger.Info("Checking of existence of bak file");
-
-      var dir = new System.IO.DirectoryInfo(CurrentAppSets.BackUpFolder);
-      string fileName = dir.GetFiles("*.bak").OrderBy(f => f.CreationTime).Last().Name;
-
+      var fileName = $"{CurrentAppSets.BackUpFolder}\\{dbName}-{System.DateTime.Now.Date.ToString("dd.MM.yyyy")}.bak";
       if (!System.IO.File.Exists(fileName))
       {
-        ErrorMessage = "Couldn't find backup file.";
+        Debug.WriteLine($"File not found: {fileName}");
         return false;
       }
-
-      var body = new Google.Apis.Drive.v3.Data.File();
-      body.Name = System.IO.Path.GetFileName(fileName);
-      body.Description = "";
-      body.MimeType = GetMimeType(fileName);
-      body.Parents = new List<string>() { CurrentGDriveSets.parent };
-
-      string[] scopes = new string[] { DriveService.Scope.Drive, DriveService.Scope.DriveFile };
-
-      var credential = GoogleWebAuthorizationBroker.AuthorizeAsync(new ClientSecrets
-      {
-        ClientId = CurrentGDriveSets.client_id,
-        ClientSecret = CurrentGDriveSets.client_secret
-      },
-        scopes,
-        CurrentGDriveSets.UserName,
-        System.Threading.CancellationToken.None,
-        new FileDataStore("MyAppsToken")).Result;
-
-
-      DriveService service = new DriveService(new BaseClientService.Initializer()
-      {
-        HttpClientInitializer = credential,
-        ApplicationName = CurrentGDriveSets.project_id,
-      });
-
-
-      var stream = new System.IO.FileStream(fileName, System.IO.FileMode.Open);
-      FilesResource.CreateMediaUpload request = null;
       try
       {
-        request = service.Files.Create(body, stream, GetMimeType(fileName));
-        request.Fields = "id";
-        request.Upload();
+        System.IO.File.Copy(fileName, $"{CurrentAppSets.GDriveFolder}//{dbName}-{System.DateTime.Now.Date.ToString("dd.MM.yyyy")}.bak", true);
+        isSuccess = true;
       }
       catch (Exception ex)
-      { ErrorMessage = ex.Message; }
-      finally
       {
-        stream?.Dispose();
+        Debug.WriteLine(ex.Message);
       }
-
-
-      if (request != null && request.ResponseBody.Id.Contains("200"))
-        isSuccess = true;
+      Debug.WriteLine($"Moving has done with status - [{isSuccess}]");
 
       return isSuccess;
 
-    }
-
-    private string GetMimeType(string fileName)
-    {
-      string mimeType = "application/unknown";
-      string ext = System.IO.Path.GetExtension(fileName).ToLower();
-      Microsoft.Win32.RegistryKey regKey = Microsoft.Win32.Registry.ClassesRoot.OpenSubKey(ext);
-      if (regKey != null && regKey.GetValue("Content Type") != null)
-        mimeType = regKey.GetValue("Content Type").ToString();
-      return mimeType;
     }
 
     public void Notify(bool dbBackUpIsSuccess, bool fileMovingIsSuccess)
     {
       if (string.IsNullOrEmpty(CurrentAppSets.Email)) return;
+
+      ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;
 
       var fromAddress = new MailAddress(CurrentAppSets.Email, "DB BackUp service");
       var toAddress = new MailAddress(CurrentAppSets.Email, "");
@@ -168,10 +123,10 @@ namespace BackUpDB
       if (dbBackUpIsSuccess && fileMovingIsSuccess)
       {
         subject = "[Done]Резервное копирование базы данных завершилось успешно";
-        body = $"Вы можете посмотреть файлы резервных копий по ссылке:{Environment.NewLine}{CurrentGDriveSets.FolderLink}";
+        body = $"Вы можете посмотреть файлы резервных копий по ссылке:{Environment.NewLine}{CurrentAppSets.GDriveFolderLink}";
       }
 
-      var smtp = new SmtpClient
+      using (var smtp = new SmtpClient
       {
         Host = "smtp.gmail.com",
         Port = 587,
@@ -179,15 +134,18 @@ namespace BackUpDB
         DeliveryMethod = SmtpDeliveryMethod.Network,
         UseDefaultCredentials = false,
         Credentials = new NetworkCredential(fromAddress.Address, fromPassword)
-      };
-      using (var message = new MailMessage(fromAddress, toAddress)
-      {
-        Subject = subject,
-        Body = body
       })
       {
-        smtp.Send(message);
+        using (var message = new MailMessage(fromAddress, toAddress)
+        {
+          Subject = subject,
+          Body = body
+        })
+        {
+          smtp.Send(message);
+        }
       }
+
     }
 
   }
