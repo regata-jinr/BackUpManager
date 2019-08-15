@@ -11,10 +11,10 @@ namespace BackUpDB
   public class BackUpManager
   {
     private IConfigurationRoot Configuration { get; set; }
-    private string CurrentEnv;
-    private string dbName = "";
+    private readonly string CurrentEnv;
+    private readonly string dbName = "";
     public AppSets CurrentAppSets;
-    private readonly bool isDevelopment;
+    private readonly bool isDevelopment = false;
 
     private string ErrorMessage = "";
 
@@ -24,8 +24,9 @@ namespace BackUpDB
       {
         Debug.WriteLine($"Starting up backup process:");
         CurrentEnv = Environment.GetEnvironmentVariable("NETCORE_ENV");
-        isDevelopment = string.IsNullOrEmpty(CurrentEnv) ||
-                           CurrentEnv.ToLower() == "development";
+
+        if (!string.IsNullOrEmpty(CurrentEnv))
+          isDevelopment = (CurrentEnv.ToLower() == "development");
 
         var builder = new ConfigurationBuilder();
         builder.AddJsonFile("appsettings.json", optional: false, reloadOnChange: true);
