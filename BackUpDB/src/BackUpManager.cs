@@ -31,8 +31,10 @@ namespace BackUpDB
         var builder = new ConfigurationBuilder();
         builder.AddJsonFile("appsettings.json", optional: false, reloadOnChange: true);
 
+        Debug.WriteLine($"isDevelopment: {isDevelopment}");
+
         if (!isDevelopment) //production
-          builder.AddUserSecrets<Program>();
+          builder.AddUserSecrets<BackUpManager>();
 
         Configuration = builder.Build();
 
@@ -78,7 +80,7 @@ namespace BackUpDB
         connection?.Dispose();
         command?.Dispose();
       }
-      Debug.WriteLine($"All scripts are done. Status of running is {isSuccess}");
+      Debug.WriteLine($"All scripts are done. Status of running is [{isSuccess}]");
 
       return isSuccess;
     }
@@ -88,7 +90,7 @@ namespace BackUpDB
       Debug.WriteLine($"Start moving file to google drive folder");
 
       bool isSuccess = false;
-      var fileName = $"{CurrentAppSets.BackUpFolder}\\{dbName}-{System.DateTime.Now.Date.ToString("dd.MM.yyyy")}.bak";
+      var fileName = $"{CurrentAppSets.BackUpFolder}//{dbName}-{System.DateTime.Now.Date.ToString("dd.MM.yyyy")}.bak";
       if (!System.IO.File.Exists(fileName))
       {
         Debug.WriteLine($"File not found: {fileName}");
@@ -102,6 +104,7 @@ namespace BackUpDB
       catch (Exception ex)
       {
         Debug.WriteLine(ex.Message);
+	ErrorMessage = ex.Message;
       }
       Debug.WriteLine($"Moving has done with status - [{isSuccess}]");
 
