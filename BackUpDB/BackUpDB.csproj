@@ -3,7 +3,7 @@
 
   <PropertyGroup>
     <OutputType>Exe</OutputType>
-    <TargetFramework>netcoreapp2.2</TargetFramework>
+    <TargetFramework>netcoreapp3.0</TargetFramework>
     <UserSecretsId>63469fb2-23f7-473c-bcde-b9ac183050ef</UserSecretsId>
     <StartupObject>BackUpDB.Program</StartupObject>
   </PropertyGroup>

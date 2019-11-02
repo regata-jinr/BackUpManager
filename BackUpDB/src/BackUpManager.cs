@@ -22,7 +22,7 @@ namespace BackUpDB
     {
       try
       {
-        Debug.WriteLine($"Starting up backup process:");
+        Console.WriteLine($"Starting up backup process:");
         CurrentEnv = Environment.GetEnvironmentVariable("NETCORE_ENV");
 
         if (!string.IsNullOrEmpty(CurrentEnv))
@@ -31,7 +31,7 @@ namespace BackUpDB
         var builder = new ConfigurationBuilder();
         builder.AddJsonFile("appsettings.json", optional: false, reloadOnChange: true);
 
-        Debug.WriteLine($"isDevelopment: {isDevelopment}");
+        Console.WriteLine($"isDevelopment: {isDevelopment}");
 
         if (!isDevelopment) //production
           builder.AddUserSecrets<BackUpManager>();
@@ -42,7 +42,7 @@ namespace BackUpDB
         Configuration.GetSection(nameof(AppSets)).Bind(CurrentAppSets);
         dbName = CurrentAppSets.DBName;
 
-        Debug.WriteLine("Constructor has done");
+        Console.WriteLine("Constructor has done");
       }
       catch (Exception ex)
       { ErrorMessage = ex.Message; }
@@ -50,7 +50,7 @@ namespace BackUpDB
 
     public bool BackUpDataBase()
     {
-      Debug.WriteLine("Connect to the data base and run back up query");
+      Console.WriteLine("Connect to the data base and run back up query");
 
       var conStrBuilder = new SqlConnectionStringBuilder(CurrentAppSets.ConnectionString);
       var queries = System.IO.File.ReadLines(CurrentAppSets.QueryFilePath).ToList();
@@ -63,7 +63,8 @@ namespace BackUpDB
         foreach (var query in queries)
         {
           command = new SqlCommand(query, connection);
-          Debug.WriteLine($"Execute query:<{query}>");
+	  command.CommandTimeout = 60;
+          Console.WriteLine($"Execute query:<{query}>");
           command.ExecuteScalar();
           System.Threading.Thread.Sleep(1000);
         }
@@ -72,7 +73,7 @@ namespace BackUpDB
       catch (Exception ex)
       {
         ErrorMessage = ex.Message;
-        Debug.WriteLine(ErrorMessage);
+        Console.WriteLine(ErrorMessage);
 
       }
       finally
@@ -80,20 +81,20 @@ namespace BackUpDB
         connection?.Dispose();
         command?.Dispose();
       }
-      Debug.WriteLine($"All scripts are done. Status of running is [{isSuccess}]");
+      Console.WriteLine($"All scripts are done. Status of running is [{isSuccess}]");
 
       return isSuccess;
     }
 
     public bool MoveFileToGDriveFolder()
     {
-      Debug.WriteLine($"Start moving file to google drive folder");
+      Console.WriteLine($"Start moving file to google drive folder");
 
       bool isSuccess = false;
       var fileName = $"{CurrentAppSets.BackUpFolder}//{dbName}-{System.DateTime.Now.Date.ToString("dd.MM.yyyy")}.bak";
       if (!System.IO.File.Exists(fileName))
       {
-        Debug.WriteLine($"File not found: {fileName}");
+        Console.WriteLine($"File not found: {fileName}");
         return false;
       }
       try
@@ -103,10 +104,10 @@ namespace BackUpDB
       }
       catch (Exception ex)
       {
-        Debug.WriteLine(ex.Message);
+        Console.WriteLine(ex.Message);
 	ErrorMessage = ex.Message;
       }
-      Debug.WriteLine($"Moving has done with status - [{isSuccess}]");
+      Console.WriteLine($"Moving has done with status - [{isSuccess}]");
 
       return isSuccess;
 
